@@ -1,1 +1,2 @@
 chrome_webdriver_path: ..\..\chromedriver.exe
+save_page_npy: False

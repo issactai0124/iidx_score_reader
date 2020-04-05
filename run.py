@@ -2,6 +2,7 @@ from pyquery import PyQuery as pq
 from sys import argv, stderr, exit
 import os.path
 import numpy as np
+from scipy import sparse
 import pickle
 import yaml
 
@@ -61,18 +62,76 @@ def extract_top(s):
 def get_number_of_row_cn(height):
     return int(round((int(height.replace('px', '')))*192/FULL_BAR_HEIGHT, 0))
 
-def read_page(doc, bpm):
-    trial = 0
-    fumen = {}
-    total_row = 0
-    bar_row_dict = {}
-    bpm_dict = {}
+def read_page():
+    # load page pickle, if not load from chrome web driver
+    try:
+        with open('pickle/' + CHART_NAME + '.pkl', 'rb') as f:
+            print('found page pickle! load from pickle peko!')
+            page = pickle.load(f)
+            bpm = pickle.load(f)
+            title = pickle.load(f)
+    except:
+        print('pickle of page not found. load from chrome driver...')
+        from selenium import webdriver
+        
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+            
+        chrome_path = config["chrome_webdriver_path"] #chromedriver.exe
+        try:
+            web = webdriver.Chrome(chrome_path)
+        except:
+            print('chrome driver error!')
+            exit(0)
+        url_with_option = url + '=' + HISPEED
+        web.get(url_with_option)
+        page = web.page_source
+        # make the pickle file just smaller...
+        try:
+            title = web.execute_script('return title')
+            bpm = web.execute_script('return bpm')
+        except:
+            print('fail to execute script. possibly invalid url!')
+            exit(0)
+        page = page[page.find("<table cellpadding"):]
+        if(type(bpm) == tuple):
+            bpm = bpm[0].split("～")[0]
+        elif(type(bpm) == str and "～" in bpm):
+            bpm = bpm.split("～")[0]
+        if(config["save_page_npy"]):
+            with open('pickle/' + CHART_NAME + '_page.pkl', 'wb') as f:
+                pickle.dump(page, f)
+                pickle.dump(bpm, f)
+                pickle.dump(title, f)
+    return page, bpm, title
+        
+def read_bpm(fumen_array, bpm_dict, bar_row_dict):
+    if (bpm_dict):
+        bar_aggrow_dict = {}
+        aggrow = 0
+        for item in sorted(bar_row_dict.items(), reverse=False):
+            bar_aggrow_dict.update({item[0]: aggrow})
+            aggrow = aggrow + item[1]
+        
+        cur_row = 0
+        prev_row = 0
     
+        for item in sorted(bpm_dict.items(), reverse=False):
+            cur_row = bar_aggrow_dict[item[0][0]] + item[0][1]
+            fumen_array[cur_row:, 8] = item[1] # overkill
+
+def process_doc(doc, bpm):
     # read information per bar
     tables = doc.find('table[cellpadding="0"]')
     if(not tables):
         print('fail to read from the url!')
         exit(0)
+
+    trial = 0
+    fumen = {1: np.zeros((192, 9))}
+    total_row = 192
+    bar_row_dict = {1: 192}
+    bpm_dict = {(1, 0): bpm}
     
     for table in tables:
         bar = pq(table)
@@ -139,7 +198,7 @@ def read_page(doc, bpm):
             except Exception as e:
                 print('unexpected error! bar = {}, tag = {}'
                       .format(bar_num, pq(note)), file=stderr)
-        trial = trial +1
+        trial += 1
     # for debug
     #    if trial > 5: 
     #        break
@@ -148,26 +207,32 @@ def read_page(doc, bpm):
     fumen_array = np.zeros((0,9))
     for key in sorted(fumen.keys(), reverse=False):
         fumen_array = np.concatenate([fumen_array, fumen[key]])
+
+    with open('pickle/' + CHART_NAME + '_npy.pkl', 'wb') as f:
+        pickle.dump(sparse.csr_matrix(fumen_array), f)
+        pickle.dump(bpm_dict, f)
+        pickle.dump(bar_row_dict, f)
         
-    if (bpm_dict):
-        bar_aggrow_dict = {}
-        aggrow = 0
-        for item in sorted(bar_row_dict.items(), reverse=False):
-            bar_aggrow_dict.update({item[0]: aggrow})
-            aggrow = aggrow + item[1]
-        
-        cur_row = 0
-        prev_row = 0
+    return fumen_array, bpm_dict, bar_row_dict
     
-        for item in sorted(bpm_dict.items(), reverse=False):
-            cur_row = bar_aggrow_dict[item[0][0]] + item[0][1]
-            fumen_array[prev_row:cur_row, 8] = bpm
-            bpm = item[1]
-            prev_row = cur_row
-        fumen_array[cur_row:, 8] = bpm
+def run():
+    # load npy pickle, if not load from page
+    try:
+        with open('pickle/' + CHART_NAME + '_npy.pkl', 'rb') as f:
+            print('found npy pickle! load from pickle peko!')
+            s_fumen_array = pickle.load(f)
+            fumen_array = np.array(s_fumen_array.todense())
+            bpm_dict = pickle.load(f)
+            bar_row_dict = pickle.load(f)
+    except:
+        page, bpm, title = read_page()
+        doc = pq(page)
+        fumen_array, bpm_dict, bar_row_dict = process_doc(doc, bpm)
         
+    read_bpm(fumen_array, bpm_dict, bar_row_dict)
     np.save(RESULT_PATH, fumen_array)
     print('written npy file at', RESULT_PATH)
+        
 
 if __name__ == '__main__':
     if(len(argv) < 2):
@@ -176,50 +241,12 @@ if __name__ == '__main__':
     
     #url = r"http://textage.cc/score/17/raison.html?1AB00" # for example    
     url = argv[1]
-    
     CHART_NAME = extract_url_name(url)
     RESULT_PATH = 'score_sp_npy/' + CHART_NAME + '.npy'
+    
+    # see if result is already generated
     if(os.path.isfile(RESULT_PATH)):
         print(RESULT_PATH + ' already exists!')
         exit(0)
-    
-    try:
-        with open('pickle/' + CHART_NAME + '.pkl', 'rb') as f:
-            print('found pickle! load from pickle peko!')
-            page = pickle.load(f)
-            bpm = pickle.load(f)
-            title = pickle.load(f)
-    except:
-        print('pickle not found. load from chrome driver...')
-        from selenium import webdriver
         
-        with open("config.yaml", "r") as f:
-            config = yaml.safe_load(f)
-            
-        chrome_path = config["chrome_webdriver_path"] #chromedriver.exe
-        try:
-            web = webdriver.Chrome(chrome_path)
-        except:
-            print('chrome driver error!')
-            exit(0)
-        url_with_option = url + '=' + HISPEED
-        web.get(url_with_option)
-        page = web.page_source
-        # make the pickle file just smaller...
-        try:
-            title = web.execute_script('return title')
-            bpm = web.execute_script('return bpm')
-        except:
-            print('fail to execute script. possibly invalid url!')
-            exit(0)
-        page = page[page.find("<table cellpadding"):]
-        if(type(bpm) == tuple):
-            bpm=bpm[0].split("～")[0]
-        with open('pickle/' + CHART_NAME + '.pkl', 'wb') as f:
-            pickle.dump(page, f)
-            pickle.dump(bpm, f)
-            pickle.dump(title, f)
-            
-    doc = pq(page)
-    
-    read_page(doc, bpm)
+    run()
