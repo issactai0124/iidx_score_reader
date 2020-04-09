@@ -139,9 +139,19 @@ dmypy.json
 cython_debug/
 
 # static files generated from Django application using `collectstatic`
-media
-static
+#media
+#static
 
 # additional folders
 score_sp_npy/
-pickle/
+time_df/
+fumen/
+.idea/
+
+# not ready yet
+web.py
+gen_df.py
+Procfile
+runtime.txt
+static/
+templates/

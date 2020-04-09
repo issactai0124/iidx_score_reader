@@ -1,2 +1,2 @@
-chrome_webdriver_path: ..\..\chromedriver.exe
-save_page_npy: False
+chrome_web_driver_path: ..\..\chromedriver.exe
+save_page_npy: True
