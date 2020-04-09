@@ -149,8 +149,7 @@ fumen/
 .idea/
 
 # not ready yet
-web.py
-gen_df.py
+app.py
 Procfile
 runtime.txt
 static/
