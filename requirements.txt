@@ -1,4 +1,4 @@
 selenium==3.141.0
 numpy==1.18.1
 pyquery==1.4.1
-PyYAML==5.3.1
+PyYAML==5.4
